@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"opaapp/opa"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -24,13 +26,25 @@ var requestIdConfig = requestid.Config{
 }
 
 var fiberConfig = fiber.Config{
-	Prefork:               true,
+	Prefork:               false,
 	ReadTimeout:           5 * time.Second,
 	WriteTimeout:          5 * time.Second,
 	DisableStartupMessage: true,
 }
 
 func fiberApp() {
+	pid := os.Getpid()
+
+	env_prefork := os.Getenv("OPAAPP_PREFORK")
+	if env_prefork != "" {
+		prefork, _ := strconv.ParseBool(env_prefork)
+		fiberConfig.Prefork = prefork
+	}
+
+	if !fiberConfig.Prefork {
+		log.Printf("pid=%d level=info Preforking disabled.", pid)
+	}
+
 	app := fiber.New(fiberConfig)
 
 	app.Use(requestid.New(requestIdConfig))
@@ -53,17 +67,17 @@ func fiberApp() {
 	app.Get("/time", getSystemTimeFiber)
 	app.Get("/closure", getDbTimeByClosureFiber(env))
 	app.Get("/db", env.getDbTimeFiber)
+	app.Get("/rego", runRegoPolicy)
 
 	port := os.Getenv("OPAAPP_PORT")
 	if port == "" {
 		port = "3000"
 	}
 
-	pid := os.Getpid()
 	listen_on := fmt.Sprintf(":%s", port)
 
-	log.Printf("pid=%d Starting up server ...", pid)
-	log.Printf("pid=%d Server listening on -> %s ", pid, listen_on)
+	log.Printf("pid=%d level=info Starting up server ...", pid)
+	log.Printf("pid=%d level=info Server listening on -> %s ", pid, listen_on)
 	log.Fatal(app.Listen(listen_on))
 }
 
@@ -118,4 +132,36 @@ func (env *Env) getDbTimeFiber(c *fiber.Ctx) error {
 	content.Random = rand.Intn(1000)
 
 	return c.JSON(content)
+}
+
+func runRegoPolicy(c *fiber.Ctx) error {
+
+	input := map[string]interface{}{
+		"pet_list": []map[string]interface{}{
+			{
+				"breed":           "St. Bernard",
+				"name":            "Cujo",
+				"up_for_adoption": false,
+			},
+			{
+				"breed":           "Collie",
+				"name":            "Lassie",
+				"up_for_adoption": true,
+			},
+		},
+		"token": "eyJ1IjoiSFMyNTYiLCJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiYWxpY2UiLCJlbXBsb3llZSI6dHJ1ZSwibmFtZSI6IkFsaWNlIFNtaXRoIn0.vMBYEW8VK9XM7yPkKTu1C3Gy1tOq1A0d4-xYMkkRpEc",
+	}
+
+	rid := c.Locals(requestIdConfig.ContextKey)
+	log.Printf("rid=%s func=runRegoPolicy level=info msg=Running rego policy.", rid)
+	start := time.Now()
+	result := opa.RunRegoQuery(input)
+	elapsed := time.Since(start)
+	log.Printf("rid=%s func=runRegoPolicy level=info msg=Policy ran successfully in %s.", rid, elapsed)
+
+	x := result[0].Bindings["result"]
+
+	return c.JSON(fiber.Map{
+		"output": x,
+	})
 }
