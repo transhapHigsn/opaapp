@@ -2,6 +2,8 @@
 
 Go Fiber webserver with integration to OPA
 
+Note: Integration with OPA is wip. 😅
+
 ## Run server
 
 ```bash
