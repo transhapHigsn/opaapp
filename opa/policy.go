@@ -2,6 +2,8 @@ package opa
 
 import (
 	"context"
+	"opaapp/utils"
+	"time"
 
 	"github.com/open-policy-agent/opa/rego"
 )
@@ -26,6 +28,7 @@ allowed_pets[pet] {
 `
 
 func RunRegoQuery(input map[string]interface{}) rego.ResultSet {
+	defer utils.TimeTrack(time.Now(), "runRegoQuery")
 	ctx := context.TODO()
 	query, err := rego.New(
 		rego.Query("result = data.application.authz.allowed_pets"),
