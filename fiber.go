@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"math/rand"
 	"os"
@@ -53,8 +54,17 @@ func fiberApp() {
 	app.Get("/closure", getDbTimeByClosureFiber(env))
 	app.Get("/db", env.getDbTimeFiber)
 
-	log.Printf("pid=%d Starting up server...", os.Getpid())
-	log.Fatal(app.Listen(":3000"))
+	port := os.Getenv("OPAAPP_PORT")
+	if port == "" {
+		port = "3000"
+	}
+
+	pid := os.Getpid()
+	listen_on := fmt.Sprintf(":%s", port)
+
+	log.Printf("pid=%d Starting up server ...", pid)
+	log.Printf("pid=%d Server listening on -> %s ", pid, listen_on)
+	log.Fatal(app.Listen(listen_on))
 }
 
 func getSystemTimeFiber(c *fiber.Ctx) error {
