@@ -15,6 +15,10 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/lightstep/otel-launcher-go/launcher"
+	fiberOtel "github.com/psmarcin/fiber-opentelemetry/pkg/fiber-otel"
 )
 
 var requestIdConfig = requestid.Config{
@@ -33,7 +37,20 @@ var fiberConfig = fiber.Config{
 }
 
 func fiberApp() {
+	// initTracer()
+
 	pid := os.Getpid()
+	access_token, ok := os.LookupEnv("LIGHTSTEP_ACCESS_TOKEN")
+	if !ok {
+		log.Fatalf("pid=%d level=danger msg=Unable to find access token.", pid)
+	}
+
+	service_name := "opaapp"
+	ls := launcher.ConfigureOpentelemetry(
+		launcher.WithServiceName(service_name),
+		launcher.WithAccessToken(access_token),
+	)
+	defer ls.Shutdown()
 
 	env_prefork := os.Getenv("OPAAPP_PREFORK")
 	if env_prefork != "" {
@@ -42,10 +59,22 @@ func fiberApp() {
 	}
 
 	if !fiberConfig.Prefork {
-		log.Printf("pid=%d level=info Preforking disabled.", pid)
+		log.Printf("pid=%d level=info msg=Preforking disabled.", pid)
 	}
 
 	app := fiber.New(fiberConfig)
+
+	otelMiddleware := fiberOtel.New(fiberOtel.Config{
+		// name for root span in trace on request
+		SpanName: "http/request",
+		// array of span options for root span
+		TracerStartAttributes: []trace.SpanOption{
+			trace.WithSpanKind(trace.SpanKindConsumer),
+		},
+		// key name for context store in fiber.Ctx
+		LocalKeyName: "otel-context",
+	})
+	app.Use(otelMiddleware)
 
 	app.Use(requestid.New(requestIdConfig))
 
@@ -68,6 +97,7 @@ func fiberApp() {
 	app.Get("/closure", getDbTimeByClosureFiber(env))
 	app.Get("/db", env.getDbTimeFiber)
 	app.Get("/rego", runRegoPolicy)
+	app.Get("/span", spanCheck)
 
 	port := os.Getenv("OPAAPP_PORT")
 	if port == "" {
@@ -76,8 +106,8 @@ func fiberApp() {
 
 	listen_on := fmt.Sprintf(":%s", port)
 
-	log.Printf("pid=%d level=info Starting up server ...", pid)
-	log.Printf("pid=%d level=info Server listening on -> %s ", pid, listen_on)
+	log.Printf("pid=%d level=info msg=Starting up server ...", pid)
+	log.Printf("pid=%d level=info msg=Server listening on -> %s ", pid, listen_on)
 	log.Fatal(app.Listen(listen_on))
 }
 
@@ -92,10 +122,15 @@ func getSystemTimeFiber(c *fiber.Ctx) error {
 
 func getDbTimeByClosureFiber(env *Env) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		ctx := fiberOtel.FromCtx(c)
+		_, span := fiberOtel.Tracer.Start(ctx, "db-time-finder-closure")
+		defer span.End()
+
 		var now time.Time
 
 		rid := c.Locals(requestIdConfig.ContextKey)
 
+		span.AddEvent("db-call")
 		log.Printf("rid=%s func=getDbTimeByClosureFiber level=info msg=Fetching time from db.", rid)
 		err := env.dbPool.QueryRow(context.Background(), "select now()").Scan(&now)
 		if err != nil {
@@ -105,19 +140,27 @@ func getDbTimeByClosureFiber(env *Env) fiber.Handler {
 
 		var content response
 
+		span.AddEvent("create-response")
 		content.Response = "DB call check by closure"
 		content.Timestamp = now
 		content.Random = rand.Intn(1000)
 
+		span.AddEvent("return-response")
 		return c.JSON(content)
 	}
 }
 
 func (env *Env) getDbTimeFiber(c *fiber.Ctx) error {
+
+	ctx := fiberOtel.FromCtx(c)
+	_, span := fiberOtel.Tracer.Start(ctx, "db-time-finder")
+	defer span.End()
+
 	var now time.Time
 
 	rid := c.Locals(requestIdConfig.ContextKey)
 
+	span.AddEvent("db-call")
 	log.Printf("rid=%s func=getDbTimeFiber level=info msg=Fetching time from db.", rid)
 	err := env.dbPool.QueryRow(context.Background(), "select now()").Scan(&now)
 	if err != nil {
@@ -127,14 +170,20 @@ func (env *Env) getDbTimeFiber(c *fiber.Ctx) error {
 
 	var content response
 
+	span.AddEvent("create-response")
 	content.Response = "DB call check"
 	content.Timestamp = now
 	content.Random = rand.Intn(1000)
 
+	span.AddEvent("return-response")
 	return c.JSON(content)
 }
 
 func runRegoPolicy(c *fiber.Ctx) error {
+
+	ctx := fiberOtel.FromCtx(c)
+	_, span := fiberOtel.Tracer.Start(ctx, "rego-context")
+	defer span.End()
 
 	input := map[string]interface{}{
 		"pet_list": []map[string]interface{}{
@@ -152,16 +201,34 @@ func runRegoPolicy(c *fiber.Ctx) error {
 		"token": "eyJ1IjoiSFMyNTYiLCJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiYWxpY2UiLCJlbXBsb3llZSI6dHJ1ZSwibmFtZSI6IkFsaWNlIFNtaXRoIn0.vMBYEW8VK9XM7yPkKTu1C3Gy1tOq1A0d4-xYMkkRpEc",
 	}
 
+	span.AddEvent("load-request-id")
 	rid := c.Locals(requestIdConfig.ContextKey)
 	log.Printf("rid=%s func=runRegoPolicy level=info msg=Running rego policy.", rid)
 	start := time.Now()
+	span.AddEvent("run-rego-query")
 	result := opa.RunRegoQuery(input)
 	elapsed := time.Since(start)
 	log.Printf("rid=%s func=runRegoPolicy level=info msg=Policy ran successfully in %s.", rid, elapsed)
 
 	x := result[0].Bindings["result"]
+	span.AddEvent("return-rego-result")
 
 	return c.JSON(fiber.Map{
 		"output": x,
+	})
+}
+
+func spanCheck(c *fiber.Ctx) error {
+	ctx := fiberOtel.FromCtx(c)
+
+	// use retrieved context
+	_, span := fiberOtel.Tracer.Start(ctx, "nested-route-tracer")
+	span.AddEvent("get-post")
+	span.AddEvent("get-comments")
+	span.AddEvent("get-author")
+	defer span.End()
+
+	return c.JSON(fiber.Map{
+		"output": "hello",
 	})
 }
