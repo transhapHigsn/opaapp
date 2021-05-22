@@ -1,8 +1,17 @@
 # OpaApp
 
-Go Fiber webserver with integration to OPA
+Go Fiber webserver for learning different technologies
 
-Note: Integration with OPA is wip. 😅
+Note: I have gone from implementing a Rest API with Open Policy Agent (OPA) to implementing:
+
+- OpenTelemetry using LightStep
+- Open Policy Agent
+- Postgres
+
+I think I still haven't strayed far enough, but soon I will be. This is what i'm thinking to add in this project:
+
+- OpenAPI
+- Pub/Sub
 
 ## Run server
 
@@ -41,3 +50,5 @@ You can use following to create test database:
 ```bash
 docker run -it -e POSTGRES_PASSWORD=passwd -e POSTGRES_USER=postgres -e POSTGRES_DB=tracker -p 5432:5432 postgres
 ```
+
+P.S.: I might not use some of them in actual projects, but whatever.
