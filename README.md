@@ -52,3 +52,14 @@ docker run -it -e POSTGRES_PASSWORD=passwd -e POSTGRES_USER=postgres -e POSTGRES
 ```
 
 P.S.: I might not use some of them in actual projects, but whatever.
+
+## Use docker to setup everything
+
+- Build image: `docker build --rm -t opaap -f Dockerfile .`
+- Run image: `docker run -it --rm -v $(pwd)/.env:/app/.env:ro -w /app --network host opaap /app/opaapp`
+
+note: `--network host` is for cases where you want to connect database running locally.
+
+## Issues & Notes
+
+- I have tried using scratch image in multi-stage build, but lightstep exporter started throwing authentication failed due to invalid x.509 certificate error. Due to that, difference between final image ~5 MB (alpine is bigger).
