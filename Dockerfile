@@ -16,4 +16,5 @@ RUN --mount=target=. \
 FROM alpine:latest
 COPY --from=build /out/opaapp /app/opaapp
 WORKDIR /app
-CMD ["/app/opaapp"]
+# CMD ["sh", "-c", "/app/opaapp"]
+CMD /app/opaapp

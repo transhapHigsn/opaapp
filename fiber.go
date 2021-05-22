@@ -55,6 +55,7 @@ func fiberApp() {
 	env_prefork := os.Getenv("OPAAPP_PREFORK")
 	if env_prefork != "" {
 		prefork, _ := strconv.ParseBool(env_prefork)
+		log.Printf("pid=%d level=info msg=prefork value from env file: %s", pid, env_prefork)
 		fiberConfig.Prefork = prefork
 	}
 
