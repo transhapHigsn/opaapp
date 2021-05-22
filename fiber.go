@@ -15,6 +15,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/lightstep/otel-launcher-go/launcher"
@@ -45,10 +46,23 @@ func fiberApp() {
 		log.Fatalf("pid=%d level=danger msg=Unable to find access token.", pid)
 	}
 
-	service_name := "opaapp"
+	host, _ := os.Hostname()
+	environment, ok := os.LookupEnv("OPAAPP_ENV")
+	if !ok {
+		log.Fatalf("pid=%d level=danger msg=environment variable lookup failure.", pid)
+	}
+
 	ls := launcher.ConfigureOpentelemetry(
-		launcher.WithServiceName(service_name),
 		launcher.WithAccessToken(access_token),
+		launcher.WithServiceName("opaapp"),
+		launcher.WithServiceVersion("v0.0.1"),
+		launcher.WithResourceAttributes(map[string]string{
+			"host.hostname":       host,
+			"container.name":      "my-container-name",
+			"cloud.region":        "ap-south-1",
+			"service.environment": environment,
+			"process.pid":         strconv.Itoa(pid),
+		}),
 	)
 	defer ls.Shutdown()
 
@@ -127,25 +141,11 @@ func getDbTimeByClosureFiber(env *Env) fiber.Handler {
 		_, span := fiberOtel.Tracer.Start(ctx, "db-time-finder-closure")
 		defer span.End()
 
-		var now time.Time
-
-		rid := c.Locals(requestIdConfig.ContextKey)
-
-		span.AddEvent("db-call")
-		log.Printf("rid=%s func=getDbTimeByClosureFiber level=info msg=Fetching time from db.", rid)
-		err := env.dbPool.QueryRow(context.Background(), "select now()").Scan(&now)
-		if err != nil {
-			panic(err)
-		}
-		log.Printf("rid=%s func=getDbTimeByClosureFiber level=info msg=Fetched time from db.", rid)
-
-		var content response
+		rid := c.Locals(requestIdConfig.ContextKey).(string)
+		span.SetAttributes(attribute.String("request.id", rid))
 
 		span.AddEvent("create-response")
-		content.Response = "DB call check by closure"
-		content.Timestamp = now
-		content.Random = rand.Intn(1000)
-
+		content := env.createResponseForGetTime(ctx, "DB call check by closure")
 		span.AddEvent("return-response")
 		return c.JSON(content)
 	}
@@ -157,25 +157,11 @@ func (env *Env) getDbTimeFiber(c *fiber.Ctx) error {
 	_, span := fiberOtel.Tracer.Start(ctx, "db-time-finder")
 	defer span.End()
 
-	var now time.Time
-
-	rid := c.Locals(requestIdConfig.ContextKey)
-
-	span.AddEvent("db-call")
-	log.Printf("rid=%s func=getDbTimeFiber level=info msg=Fetching time from db.", rid)
-	err := env.dbPool.QueryRow(context.Background(), "select now()").Scan(&now)
-	if err != nil {
-		panic(err)
-	}
-	log.Printf("rid=%s func=getDbTimeFiber level=info msg=Fetched time from db.", rid)
-
-	var content response
+	rid := c.Locals(requestIdConfig.ContextKey).(string)
+	span.SetAttributes(attribute.String("request.id", rid))
 
 	span.AddEvent("create-response")
-	content.Response = "DB call check"
-	content.Timestamp = now
-	content.Random = rand.Intn(1000)
-
+	content := env.createResponseForGetTime(ctx, "DB call check.")
 	span.AddEvent("return-response")
 	return c.JSON(content)
 }
@@ -185,6 +171,11 @@ func runRegoPolicy(c *fiber.Ctx) error {
 	ctx := fiberOtel.FromCtx(c)
 	_, span := fiberOtel.Tracer.Start(ctx, "rego-context")
 	defer span.End()
+
+	span.AddEvent("load-request-id")
+	rid := c.Locals(requestIdConfig.ContextKey).(string)
+
+	span.SetAttributes(attribute.String("request.id", rid))
 
 	input := map[string]interface{}{
 		"pet_list": []map[string]interface{}{
@@ -202,14 +193,8 @@ func runRegoPolicy(c *fiber.Ctx) error {
 		"token": "eyJ1IjoiSFMyNTYiLCJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VyIjoiYWxpY2UiLCJlbXBsb3llZSI6dHJ1ZSwibmFtZSI6IkFsaWNlIFNtaXRoIn0.vMBYEW8VK9XM7yPkKTu1C3Gy1tOq1A0d4-xYMkkRpEc",
 	}
 
-	span.AddEvent("load-request-id")
-	rid := c.Locals(requestIdConfig.ContextKey)
-	log.Printf("rid=%s func=runRegoPolicy level=info msg=Running rego policy.", rid)
-	start := time.Now()
 	span.AddEvent("run-rego-query")
-	result := opa.RunRegoQuery(input)
-	elapsed := time.Since(start)
-	log.Printf("rid=%s func=runRegoPolicy level=info msg=Policy ran successfully in %s.", rid, elapsed)
+	result := opa.RunRegoQuery(ctx, input)
 
 	x := result[0].Bindings["result"]
 	span.AddEvent("return-rego-result")
@@ -232,4 +217,45 @@ func spanCheck(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"output": "hello",
 	})
+}
+
+func (env *Env) getTime(ctx context.Context) time.Time {
+	_, span := fiberOtel.Tracer.Start(
+		ctx,
+		"env.getTime",
+		trace.WithSpanKind(trace.SpanKindClient),
+		trace.WithAttributes(
+			attribute.String("db.system", "postgresql"),
+			attribute.String("db.operation", "now"),
+		),
+	)
+
+	defer span.End()
+
+	var now time.Time
+	err := env.dbPool.QueryRow(context.Background(), "select now()").Scan(&now)
+	if err != nil {
+		panic(err)
+	}
+	return now
+}
+
+func (env *Env) createResponseForGetTime(ctx context.Context, reply string) response {
+	_, span := fiberOtel.Tracer.Start(
+		ctx,
+		"env.createResponseForGetTime",
+		trace.WithSpanKind(trace.SpanKindClient),
+		// trace.WithAttributes(
+		// 	attribute.String("db.system", "postgresql"),
+		// 	attribute.String("db.operation", "now"),
+		// ),
+	)
+
+	defer span.End()
+	var content response
+	content.Timestamp = env.getTime(ctx)
+	content.Random = rand.Intn(10000)
+	content.Response = reply
+
+	return content
 }

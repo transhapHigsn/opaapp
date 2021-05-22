@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/open-policy-agent/opa/rego"
+	fiberOtel "github.com/psmarcin/fiber-opentelemetry/pkg/fiber-otel"
 )
 
 var module = `
@@ -27,19 +28,23 @@ allowed_pets[pet] {
 }
 `
 
-func RunRegoQuery(input map[string]interface{}) rego.ResultSet {
+func RunRegoQuery(ctx context.Context, input map[string]interface{}) rego.ResultSet {
 	defer utils.TimeTrack(time.Now(), "runRegoQuery")
-	ctx := context.TODO()
+
+	_, span := fiberOtel.Tracer.Start(ctx, "runRegoQuery")
+	defer span.End()
+
+	rego_ctx := context.TODO()
 	query, err := rego.New(
 		rego.Query("result = data.application.authz.allowed_pets"),
 		rego.Module("example.rego", module),
-	).PrepareForEval(ctx)
+	).PrepareForEval(rego_ctx)
 
 	if err != nil {
 		panic(err)
 	}
 
-	results, err := query.Eval(ctx, rego.EvalInput(input))
+	results, err := query.Eval(rego_ctx, rego.EvalInput(input))
 	if err != nil {
 		panic(err)
 	}

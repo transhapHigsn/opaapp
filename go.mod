@@ -11,6 +11,7 @@ require (
 	github.com/lightstep/otel-launcher-go v0.20.0
 	github.com/open-policy-agent/opa v0.28.0
 	github.com/psmarcin/fiber-opentelemetry v0.5.0
+	go.opentelemetry.io/otel v0.20.0
 	go.opentelemetry.io/otel/trace v0.20.0
 	golang.org/x/text v0.3.6 // indirect
 )
