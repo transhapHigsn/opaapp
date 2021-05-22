@@ -1,6 +1,7 @@
 tracer.go
-.env.sample
-.env
+.env*
 .gitignore
 .lite_workspace.lua
 README.md
+LICENSE
+opaapp
