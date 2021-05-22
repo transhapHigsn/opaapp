@@ -114,12 +114,19 @@ func fiberApp() {
 	app.Get("/rego", runRegoPolicy)
 	app.Get("/span", spanCheck)
 
-	port := os.Getenv("OPAAPP_PORT")
-	if port == "" {
+	opaapp_port := os.Getenv("OPAAPP_PORT")
+	port := os.Getenv("PORT")
+
+	var application_port string
+	if port != "" {
+		application_port = port
+	} else if opaapp_port != "" {
+		application_port = opaapp_port
+	} else {
 		port = "3000"
 	}
 
-	listen_on := fmt.Sprintf(":%s", port)
+	listen_on := fmt.Sprintf(":%s", application_port)
 
 	log.Printf("pid=%d level=info msg=Starting up server ...", pid)
 	log.Printf("pid=%d level=info msg=Server listening on -> %s ", pid, listen_on)
