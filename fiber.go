@@ -117,14 +117,17 @@ func fiberApp() {
 	opaapp_port := os.Getenv("OPAAPP_PORT")
 	port := os.Getenv("PORT")
 
+	// select app port
+	// this is for heroku/local dev etc.,
 	var application_port string
 	if port != "" {
 		application_port = port
 	} else if opaapp_port != "" {
 		application_port = opaapp_port
 	} else {
-		port = "3000"
+		application_port = "3000"
 	}
+	log.Printf("pid=%d level=info msg=$PORT:%s $OPAAPP_PORT:%s APP_PORT:%s", pid, port, opaapp_port, application_port)
 
 	listen_on := fmt.Sprintf(":%s", application_port)
 
