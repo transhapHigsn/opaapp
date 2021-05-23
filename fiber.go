@@ -129,7 +129,7 @@ func fiberApp() {
 	}
 	log.Printf("pid=%d level=info msg=$PORT:%s $OPAAPP_PORT:%s APP_PORT:%s", pid, port, opaapp_port, application_port)
 
-	listen_on := fmt.Sprintf(":%s", application_port)
+	listen_on := fmt.Sprintf("0.0.0.0:%s", application_port)
 
 	log.Printf("pid=%d level=info msg=Starting up server ...", pid)
 	log.Printf("pid=%d level=info msg=Server listening on -> %s ", pid, listen_on)
