@@ -77,6 +77,23 @@ func fiberApp() {
 		log.Printf("pid=%d level=info msg=Preforking disabled.", pid)
 	}
 
+	opaapp_port := os.Getenv("OPAAPP_PORT")
+	port := os.Getenv("PORT")
+
+	// select app port
+	// this is for heroku/local dev etc.,
+	var application_port string
+	if port != "" {
+		application_port = port
+	} else if opaapp_port != "" {
+		application_port = opaapp_port
+	} else {
+		application_port = "3000"
+	}
+	log.Printf("pid=%d level=info msg=$PORT:%s $OPAAPP_PORT:%s APP_PORT:%s", pid, port, opaapp_port, application_port)
+	listen_on := fmt.Sprintf(":%s", application_port)
+	log.Printf("pid=%d level=info msg=opa-app will listen on port %s", pid, listen_on)
+
 	app := fiber.New(fiberConfig)
 
 	otelMiddleware := fiberOtel.New(fiberOtel.Config{
@@ -113,23 +130,6 @@ func fiberApp() {
 	app.Get("/db", env.getDbTimeFiber)
 	app.Get("/rego", runRegoPolicy)
 	app.Get("/span", spanCheck)
-
-	opaapp_port := os.Getenv("OPAAPP_PORT")
-	port := os.Getenv("PORT")
-
-	// select app port
-	// this is for heroku/local dev etc.,
-	var application_port string
-	if port != "" {
-		application_port = port
-	} else if opaapp_port != "" {
-		application_port = opaapp_port
-	} else {
-		application_port = "3000"
-	}
-	log.Printf("pid=%d level=info msg=$PORT:%s $OPAAPP_PORT:%s APP_PORT:%s", pid, port, opaapp_port, application_port)
-
-	listen_on := fmt.Sprintf("0.0.0.0:%s", application_port)
 
 	log.Printf("pid=%d level=info msg=Starting up server ...", pid)
 	log.Printf("pid=%d level=info msg=Server listening on -> %s ", pid, listen_on)
