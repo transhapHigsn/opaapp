@@ -3,6 +3,7 @@ module opaapp
 go 1.16
 
 require (
+	github.com/getsentry/sentry-go v0.11.0 // indirect
 	github.com/gofiber/fiber/v2 v2.9.0
 	github.com/google/uuid v1.2.0
 	github.com/jackc/pgx/v4 v4.11.0

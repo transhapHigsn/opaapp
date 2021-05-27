@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/lightstep/otel-launcher-go/launcher"
 	fiberOtel "github.com/psmarcin/fiber-opentelemetry/pkg/fiber-otel"
 )
@@ -49,8 +50,25 @@ func fiberApp() {
 	host, _ := os.Hostname()
 	environment, ok := os.LookupEnv("OPAAPP_ENV")
 	if !ok {
-		log.Fatalf("pid=%d level=danger msg=environment variable lookup failure.", pid)
+		log.Fatalf("pid=%d level=danger msg=environment variable (OPAAPP_ENV) lookup failure.", pid)
 	}
+
+	sentry_dsn, ok := os.LookupEnv("SENTRY_DSN")
+	if !ok {
+		log.Fatalf("pid=%d level=danger msg=environment variable (SENTRY_DSN) lookup failure.", pid)
+	}
+
+	err := sentry.Init(sentry.ClientOptions{
+		Dsn:              sentry_dsn,
+		Environment:      environment,
+		Release:          "opaapp@0.0.1",
+		TracesSampleRate: 0.25,
+	})
+	if err != nil {
+		log.Fatalf("pid=%d level=danger msg=sentry.Init: %s", pid, err)
+	}
+	// Flush buffered events before the program terminates.
+	defer sentry.Flush(2 * time.Second)
 
 	ls := launcher.ConfigureOpentelemetry(
 		launcher.WithAccessToken(access_token),
