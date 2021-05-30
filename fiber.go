@@ -15,11 +15,12 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/gofiber/fiber/v2/middleware/requestid"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/stdout"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/getsentry/sentry-go"
-	"github.com/lightstep/otel-launcher-go/launcher"
 	fiberOtel "github.com/psmarcin/fiber-opentelemetry/pkg/fiber-otel"
 )
 
@@ -42,47 +43,62 @@ func fiberApp() {
 	// initTracer()
 
 	pid := os.Getpid()
-	access_token, ok := os.LookupEnv("LIGHTSTEP_ACCESS_TOKEN")
-	if !ok {
-		log.Fatalf("pid=%d level=danger msg=Unable to find access token.", pid)
-	}
+	// access_token, ok := os.LookupEnv("LIGHTSTEP_ACCESS_TOKEN")
+	// if !ok {
+	// 	log.Fatalf("pid=%d level=danger msg=Unable to find access token.", pid)
+	// }
 
-	host, _ := os.Hostname()
-	environment, ok := os.LookupEnv("OPAAPP_ENV")
-	if !ok {
-		log.Fatalf("pid=%d level=danger msg=environment variable (OPAAPP_ENV) lookup failure.", pid)
-	}
+	// host, _ := os.Hostname()
+	// environment, ok := os.LookupEnv("OPAAPP_ENV")
+	// if !ok {
+	// 	log.Fatalf("pid=%d level=danger msg=environment variable (OPAAPP_ENV) lookup failure.", pid)
+	// }
 
-	sentry_dsn, ok := os.LookupEnv("SENTRY_DSN")
-	if !ok {
-		log.Fatalf("pid=%d level=danger msg=environment variable (SENTRY_DSN) lookup failure.", pid)
-	}
+	// sentry_dsn, ok := os.LookupEnv("SENTRY_DSN")
+	// if !ok {
+	// 	log.Fatalf("pid=%d level=danger msg=environment variable (SENTRY_DSN) lookup failure.", pid)
+	// }
 
-	err := sentry.Init(sentry.ClientOptions{
-		Dsn:              sentry_dsn,
-		Environment:      environment,
-		Release:          "opaapp@0.0.1",
-		TracesSampleRate: 0.25,
-	})
-	if err != nil {
-		log.Fatalf("pid=%d level=danger msg=sentry.Init: %s", pid, err)
-	}
-	// Flush buffered events before the program terminates.
-	defer sentry.Flush(2 * time.Second)
+	// err := sentry.Init(sentry.ClientOptions{
+	// 	Dsn:              sentry_dsn,
+	// 	Environment:      environment,
+	// 	Release:          "opaapp@0.0.1",
+	// 	TracesSampleRate: 0.25,
+	// })
+	// if err != nil {
+	// 	log.Fatalf("pid=%d level=danger msg=sentry.Init: %s", pid, err)
+	// }
+	// // Flush buffered events before the program terminates.
+	// defer sentry.Flush(2 * time.Second)
 
-	ls := launcher.ConfigureOpentelemetry(
-		launcher.WithAccessToken(access_token),
-		launcher.WithServiceName("opaapp"),
-		launcher.WithServiceVersion("v0.0.1"),
-		launcher.WithResourceAttributes(map[string]string{
-			"host.hostname":       host,
-			"container.name":      "my-container-name",
-			"cloud.region":        "ap-south-1",
-			"service.environment": environment,
-			"process.pid":         strconv.Itoa(pid),
-		}),
+	exporter, err := stdout.NewExporter(
+		stdout.WithPrettyPrint(),
 	)
-	defer ls.Shutdown()
+	if err != nil {
+		log.Fatalf("pid=%d level=danger msg=failed to initialize stdout export pipeline: %v", pid, err)
+	}
+
+	ctx := context.Background()
+	bsp := sdktrace.NewBatchSpanProcessor(exporter)
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(bsp))
+
+	// Handle this error in a sensible manner where possible
+	defer func() { _ = tp.Shutdown(ctx) }()
+	otel.SetTracerProvider(tp)
+
+	// ls := launcher.ConfigureOpentelemetry(
+	// 	launcher.WithAccessToken(access_token),
+	// 	launcher.WithServiceName("opaapp"),
+	// 	launcher.WithServiceVersion("v0.0.1"),
+	// 	launcher.WithResourceAttributes(map[string]string{
+	// 		"host.hostname":       host,
+	// 		"container.name":      "my-container-name",
+	// 		"cloud.region":        "ap-south-1",
+	// 		"service.environment": environment,
+	// 		"process.pid":         strconv.Itoa(pid),
+	// 	}),
+	// )
+	// defer ls.Shutdown()
 
 	env_prefork := os.Getenv("OPAAPP_PREFORK")
 	if env_prefork != "" {
